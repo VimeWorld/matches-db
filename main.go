@@ -14,7 +14,7 @@ import (
 )
 
 func main() {
-	bind := flag.String("bind", "127.0.0.1:8881", "address to bind baas (can be a unix domain socket: /var/run/baas.sock)")
+	bind := flag.String("bind", "127.0.0.1:8881", "address to bind baas (can be a unix domain socket: /var/run/matches-db.sock)")
 	usersPath := flag.String("users-db", "./db/users", "path to the users database")
 	matchesPath := flag.String("matches-db", "./db/matches", "path to the matches database")
 	truncate := flag.Bool("truncate", false, "enables badger to truncate corrupted values")
@@ -23,17 +23,19 @@ func main() {
 
 	users := &storage.UserStorage{}
 	if err := users.Open(*usersPath, *truncate); err != nil {
-		log.Fatalf("Could not open users database: %s", err)
+		log.Printf("Could not open users database: %s", err)
 		return
 	}
+	defer func() { _ = users.Close() }()
 
 	matches := &storage.MatchesStorage{
 		CompressThreshold: 512,
 	}
 	if err := matches.Open(*matchesPath, *truncate); err != nil {
-		log.Fatalf("Could not open matches database: %s", err)
+		log.Printf("Could not open matches database: %s", err)
 		return
 	}
+	defer func() { _ = matches.Close() }()
 
 	server := api.Server{
 		Users:   users,
@@ -43,7 +45,7 @@ func main() {
 	go func() {
 		log.Printf("Start http server on %s", *bind)
 		if err := server.Bind(*bind); err != nil {
-			log.Fatalf("Could not start server: %s", err)
+			log.Printf("Could not start server: %s", err)
 		}
 	}()
 
@@ -51,6 +53,9 @@ func main() {
 	signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM)
 	select {
 	case <-stopChan:
+		if err := server.Close(); err != nil {
+			log.Printf("stop server error: %s", err)
+		}
 		var wg sync.WaitGroup
 		wg.Add(2)
 		go func() {

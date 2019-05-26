@@ -26,7 +26,8 @@ var bucketsDescriptor = &valueDescriptor{
 }
 
 type UserStorage struct {
-	db *badger.DB
+	db   *badger.DB
+	path string
 }
 
 func (s *UserStorage) Open(path string, truncate bool) error {
@@ -48,6 +49,7 @@ func (s *UserStorage) Open(path string, truncate bool) error {
 		return err
 	}
 	s.db = db
+	s.path = path
 	runBadgerGc(db, 0.5)
 
 	return nil
@@ -179,6 +181,10 @@ func (s *UserStorage) BigTransaction(fn func(txn *UsersTransaction) error, updat
 	}
 
 	return false, txn.Commit()
+}
+
+func (s *UserStorage) Backup() error {
+	return backup(s.db, s.path+"/backups")
 }
 
 func (s *UserStorage) Close() error {

@@ -2,12 +2,16 @@ package storage
 
 import (
 	"bytes"
-	"github.com/dgraph-io/badger"
-	"github.com/klauspost/compress/flate"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
+
+	"github.com/dgraph-io/badger"
+	"github.com/klauspost/compress/flate"
 )
 
 const (
@@ -16,8 +20,10 @@ const (
 )
 
 type MatchesStorage struct {
-	db                *badger.DB
 	CompressThreshold int
+
+	db   *badger.DB
+	path string
 }
 
 func (s *MatchesStorage) Open(path string, truncate bool) error {
@@ -25,7 +31,7 @@ func (s *MatchesStorage) Open(path string, truncate bool) error {
 	opts.Dir = path
 	opts.ValueDir = path
 	opts.Truncate = truncate
-	opts.MaxTableSize = 6 << 20
+	opts.MaxTableSize = 16 << 20
 	opts.NumMemtables = 2
 	opts.LevelOneSize = 32 << 20
 	opts.Logger = &logWrapper{log.New(os.Stderr, "badger-matches ", log.LstdFlags)}
@@ -35,9 +41,60 @@ func (s *MatchesStorage) Open(path string, truncate bool) error {
 		return err
 	}
 	s.db = db
+	s.path = path
 	runBadgerGc(db, 0.5)
 
 	return nil
+}
+
+func (s *MatchesStorage) ImportFromDir(dir string) error {
+	files, err := ioutil.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for {
+		written := 0
+		err = s.Transaction(func(txn *MatchesTransaction) error {
+			for _, file := range files {
+				if strings.HasSuffix(file.Name(), ".json") {
+					num, err := strconv.ParseInt(file.Name()[:len(file.Name())-5], 10, 64)
+					if err != nil {
+						continue
+					}
+					key := serializeUint64(uint64(num))
+					_, err = txn.txn.Get(key)
+					if err != nil {
+						if err == badger.ErrKeyNotFound {
+							data, err := ioutil.ReadFile(dir + "/" + file.Name())
+							if err != nil {
+								return err
+							}
+							written += len(data)
+							err = txn.Put(uint64(num), data, false)
+							if err != nil {
+								return err
+							}
+							if written > 3000000 {
+								return nil
+							}
+						} else {
+							return err
+						}
+					}
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		if written == 0 {
+			break
+		}
+		log.Printf("Recommit")
+	}
+	log.Printf("Import done")
+	return err
 }
 
 func (s *MatchesStorage) Get(id uint64) ([]byte, error) {
@@ -75,6 +132,10 @@ func (s *MatchesStorage) Transaction(fn func(txn *MatchesTransaction) error) err
 	})
 }
 
+func (s *MatchesStorage) Backup() error {
+	return backup(s.db, s.path+"/backups")
+}
+
 func (s *MatchesStorage) Close() error {
 	return s.db.Close()
 }
@@ -84,13 +145,16 @@ type MatchesTransaction struct {
 	compressThreshold int
 }
 
-func (t *MatchesTransaction) Put(id uint64, data []byte) error {
+func (t *MatchesTransaction) Put(id uint64, data []byte, copy bool) error {
 	if len(data) > t.compressThreshold {
 		data, err := deflate(data)
 		if err != nil {
 			return err
 		}
 		return t.txn.SetWithMeta(serializeUint64(id), data, matchesMetaTypeFlate)
+	}
+	if copy {
+		data = append(data[:0:0], data...)
 	}
 	return t.txn.SetWithMeta(serializeUint64(id), data, matchesMetaTypeRaw)
 }

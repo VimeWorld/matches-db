@@ -2,7 +2,9 @@ package storage
 
 import (
 	"bytes"
+	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/dgraph-io/badger"
@@ -174,4 +176,29 @@ func runBadgerGc(db *badger.DB, discardRatio float64) {
 			}
 		}
 	}()
+}
+
+func backup(db *badger.DB, dir string) error {
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		if err := os.Mkdir(dir, os.ModePerm); err != nil {
+			return err
+		}
+	}
+	bakName := fmt.Sprint(dir, "/backup", time.Now().Unix(), ".bak")
+	file, err := os.Create(bakName)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err := file.Close()
+		if err != nil {
+			log.Println(err)
+		}
+	}()
+
+	_, err = db.Backup(file, 0)
+	if err != nil {
+		return err
+	}
+	return nil
 }
