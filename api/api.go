@@ -24,9 +24,6 @@ type Server struct {
 
 func (s *Server) Bind(bind string) error {
 	router := routing.New()
-	// старые пути для совместимости
-	router.Post("/saveMatch", s.handleAddUserMatch)
-	router.Post("/saveMatchFile", s.handleSaveMatchFile)
 
 	router.Post("/user/addMatch", s.handleAddUserMatch)
 	router.Post("/user/addMatches", s.handleAddUserMatches)
@@ -76,4 +73,9 @@ func parseInt(stringSlice []byte, fallback int) int {
 		return fallback
 	}
 	return num
+}
+
+func writeBody(c *routing.Context, message string, status int) error {
+	c.Error(message, status)
+	return nil
 }

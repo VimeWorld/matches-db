@@ -1,7 +1,6 @@
 package api
 
 import (
-	"errors"
 	"fmt"
 	"time"
 
@@ -11,7 +10,7 @@ import (
 func (s *Server) handleCleanup(c *routing.Context) error {
 	timestamp := parseInt(c.QueryArgs().Peek("deadline"), 0)
 	if timestamp == 0 {
-		return errors.New("invalid deadline")
+		return writeBody(c, "invalid deadline", 400)
 	}
 	deadline := time.Unix(int64(timestamp), 0)
 
@@ -23,21 +22,19 @@ func (s *Server) handleCleanup(c *routing.Context) error {
 	if err != nil {
 		return err
 	}
-	c.Error(fmt.Sprint("OK userMatches:", deleted, " matches:", deleted2), 200)
-	return nil
+	return writeBody(c, fmt.Sprint("OK userMatches:", deleted, " matches:", deleted2), 200)
 }
 
 func (s *Server) handleImport(c *routing.Context) error {
 	path := string(c.QueryArgs().Peek("path"))
 	if path == "" {
-		return errors.New("invalid path")
+		return writeBody(c, "invalid path", 400)
 	}
 	err := s.Matches.ImportFromDir(path)
 	if err != nil {
 		return nil
 	}
-	c.Error("OK", 200)
-	return nil
+	return writeBody(c, "OK", 200)
 }
 
 func (s *Server) handleBackup(c *routing.Context) error {
@@ -49,6 +46,5 @@ func (s *Server) handleBackup(c *routing.Context) error {
 	if err != nil {
 		return fmt.Errorf("users backup: %v", err)
 	}
-	c.Error("OK", 200)
-	return nil
+	return writeBody(c, "OK", 200)
 }

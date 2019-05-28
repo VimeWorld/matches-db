@@ -1,7 +1,6 @@
 package api
 
 import (
-	"errors"
 	"github.com/VimeWorld/matches-db/storage"
 	"github.com/qiangxue/fasthttp-routing"
 )
@@ -26,8 +25,7 @@ func (s *Server) handleAddUserMatch(c *routing.Context) error {
 		return err
 	}
 
-	c.Error("OK", 200)
-	return nil
+	return writeBody(c, "OK", 200)
 }
 
 func (s *Server) handleAddUserMatches(c *routing.Context) error {
@@ -51,8 +49,7 @@ func (s *Server) handleAddUserMatches(c *routing.Context) error {
 		return err
 	}
 
-	c.Error("OK", 200)
-	return nil
+	return writeBody(c, "OK", 200)
 }
 
 func (s *Server) handleUserMatches(c *routing.Context) error {
@@ -60,13 +57,13 @@ func (s *Server) handleUserMatches(c *routing.Context) error {
 	count := parseInt(c.QueryArgs().Peek("count"), 20)
 	offset := parseInt(c.QueryArgs().Peek("offset"), 0)
 	if count < 0 {
-		return errors.New("invalid count")
+		return writeBody(c, "invalid count", 400)
 	}
 	if offset < 0 {
-		return errors.New("invalid offset")
+		return writeBody(c, "invalid offset", 400)
 	}
 	if user <= 0 {
-		return errors.New("invalid user id")
+		return writeBody(c, "invalid user id", 400)
 	}
 
 	matches, err := s.Users.GetLastUserMatches(uint32(user), count+offset)
