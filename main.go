@@ -53,9 +53,11 @@ func main() {
 	signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM)
 	select {
 	case <-stopChan:
+		log.Printf("Shutting down the server")
 		if err := server.Close(); err != nil {
-			log.Printf("stop server error: %s", err)
+			log.Printf("Stop server error: %s", err)
 		}
+		log.Printf("Close databases")
 		var wg sync.WaitGroup
 		wg.Add(2)
 		go func() {

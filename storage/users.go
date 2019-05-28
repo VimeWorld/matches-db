@@ -85,7 +85,7 @@ func (s *UserStorage) removeOldMatchesRecursive(deadline time.Time, deleted int)
 		for it.Rewind(); it.Valid(); it.Next() {
 			item := it.Item()
 
-			if len(item.Key()) != keyLength+bucketLength {
+			if item.KeySize() != keyLength+bucketLength {
 				continue
 			}
 			bucket := item.Key()[keyLength:]

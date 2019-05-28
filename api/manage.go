@@ -16,11 +16,14 @@ func (s *Server) handleCleanup(c *routing.Context) error {
 	deadline := time.Unix(int64(timestamp), 0)
 
 	deleted, err := s.Users.RemoveOldMatches(deadline)
-
 	if err != nil {
 		return err
 	}
-	c.Error(fmt.Sprint("OK", deleted), 200)
+	deleted2, err := s.Matches.RemoveOldMatches(deadline)
+	if err != nil {
+		return err
+	}
+	c.Error(fmt.Sprint("OK userMatches:", deleted, " matches:", deleted2), 200)
 	return nil
 }
 

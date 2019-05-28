@@ -9,7 +9,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/VimeWorld/matches-db/types"
 	"github.com/dgraph-io/badger"
 	"github.com/klauspost/compress/flate"
 )
@@ -97,6 +99,41 @@ func (s *MatchesStorage) ImportFromDir(dir string) error {
 	return err
 }
 
+func (s *MatchesStorage) RemoveOldMatches(deadline time.Time) (deleted int, err error) {
+	return s.removeOldMatchesRecursive(uint64(deadline.Unix()*1000), 0)
+}
+
+func (s *MatchesStorage) removeOldMatchesRecursive(deadline uint64, deleted int) (int, error) {
+	overrun, err := s.BigTransaction(func(txn *badger.Txn) error {
+		it := txn.NewIterator(badger.IteratorOptions{
+			PrefetchValues: false,
+		})
+		defer it.Close()
+
+		for it.Rewind(); it.Valid(); it.Next() {
+			item := it.Item()
+			id := byteOrder.Uint64(item.Key())
+			if types.GetSnowflakeTs(id) < deadline {
+				err := txn.Delete(item.KeyCopy(nil))
+				if err != nil {
+					return err
+				}
+				deleted++
+			} else {
+				return nil
+			}
+		}
+		return nil
+	}, true)
+
+	// Если размер транзакции слишком большой, то оно закоммитит что есть и будет еще один проход
+	if overrun && err == nil {
+		log.Println("Cleanup running out of txn size. Repeating")
+		return s.removeOldMatchesRecursive(deadline, deleted)
+	}
+	return deleted, err
+}
+
 func (s *MatchesStorage) Get(id uint64) ([]byte, error) {
 	var data []byte
 	err := s.db.View(func(txn *badger.Txn) error {
@@ -121,6 +158,20 @@ func (s *MatchesStorage) Get(id uint64) ([]byte, error) {
 		return nil, err
 	}
 	return data, nil
+}
+
+func (s *MatchesStorage) BigTransaction(fn func(txn *badger.Txn) error, update bool) (overrun bool, err error) {
+	txn := s.db.NewTransaction(update)
+	defer txn.Discard()
+
+	if err := fn(txn); err != nil {
+		if err == badger.ErrTxnTooBig {
+			return true, txn.Commit()
+		}
+		return false, err
+	}
+
+	return false, txn.Commit()
 }
 
 func (s *MatchesStorage) Transaction(fn func(txn *MatchesTransaction) error) error {
