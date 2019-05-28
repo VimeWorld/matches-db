@@ -1,10 +1,23 @@
 package types
 
+import (
+	"fmt"
+	"time"
+)
+
 const SnowflakeEpoch uint64 = 1546300800000
 
 type UserMatch struct {
 	Id  uint64 `json:"id"`
 	Win bool   `json:"win"`
+}
+
+func (s *UserMatch) GetDate() time.Time {
+	return time.Unix(int64(GetSnowflakeTs(s.Id)/1000), 0)
+}
+
+func (s *UserMatch) String() string {
+	return fmt.Sprint("UserMatch{id=", s.Id, ", win=", s.Win, "}")
 }
 
 func GetSnowflakeTs(id uint64) uint64 {

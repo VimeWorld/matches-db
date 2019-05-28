@@ -2,7 +2,6 @@ package api
 
 import (
 	"errors"
-
 	"github.com/VimeWorld/matches-db/storage"
 	"github.com/qiangxue/fasthttp-routing"
 )
@@ -60,8 +59,13 @@ func (s *Server) handleUserMatches(c *routing.Context) error {
 	user := parseInt(c.QueryArgs().Peek("user"), 0)
 	count := parseInt(c.QueryArgs().Peek("count"), 20)
 	offset := parseInt(c.QueryArgs().Peek("offset"), 0)
-
-	if user == 0 {
+	if count < 0 {
+		return errors.New("invalid count")
+	}
+	if offset < 0 {
+		return errors.New("invalid offset")
+	}
+	if user <= 0 {
 		return errors.New("invalid user id")
 	}
 
@@ -70,32 +74,23 @@ func (s *Server) handleUserMatches(c *routing.Context) error {
 		return err
 	}
 
-	if offset < 0 {
-		offset = 0
-	}
-	if offset > len(matches) {
-		offset = len(matches)
-	}
-	if count < 0 {
-		count = 0
-	}
-	if count+offset >= len(matches) {
-		count = len(matches) - offset
+	end := len(matches) - offset
+	start := end - count
+	if start < 0 {
+		start = 0
 	}
 
 	c.Response.Header.Set("Content-Type", "application/json")
-
-	if count == 0 {
+	if end <= 0 {
 		_, err = c.WriteString("[]")
 		return err
 	}
 
-	selection := matches[offset : offset+count]
 	stream := json.BorrowStream(c)
 	stream.WriteArrayStart()
-	for i := len(selection) - 1; i >= 0; i-- {
-		stream.WriteVal(selection[i])
-		if i != 0 {
+	for i := end - 1; i >= start; i-- {
+		stream.WriteVal(matches[i])
+		if i != start {
 			stream.WriteMore()
 		}
 	}
