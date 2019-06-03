@@ -48,3 +48,15 @@ func (s *Server) handleBackup(c *routing.Context) error {
 	}
 	return writeBody(c, "OK", 200)
 }
+
+func (s *Server) handleFlatten(c *routing.Context) error {
+	err := s.Matches.Flatten()
+	if err != nil {
+		return fmt.Errorf("matches flatten: %v", err)
+	}
+	err = s.Users.Flatten()
+	if err != nil {
+		return fmt.Errorf("users flatten: %v", err)
+	}
+	return writeBody(c, "OK", 200)
+}

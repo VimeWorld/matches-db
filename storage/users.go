@@ -183,6 +183,10 @@ func (s *UserStorage) BigTransaction(fn func(txn *UsersTransaction) error, updat
 	return false, txn.Commit()
 }
 
+func (s *UserStorage) Flatten() error {
+	return s.db.Flatten(3)
+}
+
 func (s *UserStorage) Backup() error {
 	return backup(s.db, s.path+"/backups")
 }

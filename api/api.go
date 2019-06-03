@@ -24,9 +24,6 @@ type Server struct {
 
 func (s *Server) Bind(bind string) error {
 	router := routing.New()
-
-	router.Post("/user/addMatch", s.handleAddUserMatch)
-	router.Post("/user/addMatches", s.handleAddUserMatches)
 	router.Get("/user/getMatches", s.handleUserMatches)
 
 	router.Get(`/match/<id:\d+>`, s.handleGetMatch)
@@ -35,11 +32,13 @@ func (s *Server) Bind(bind string) error {
 	router.Get("/manage/importMatchFiles", s.handleImport)
 	router.Get("/manage/backup", s.handleBackup)
 	router.Get("/manage/cleanup", s.handleCleanup)
+	router.Get("/manage/flatten", s.handleFlatten)
 
 	s.server = &fasthttp.Server{
-		Handler:     s.loggingHandler(router.HandleRequest),
-		Name:        "matches-db",
-		ReadTimeout: 60 * time.Second,
+		Handler:           s.loggingHandler(router.HandleRequest),
+		Name:              "matches-db",
+		ReadTimeout:       60 * time.Second,
+		ReduceMemoryUsage: true,
 	}
 	if strings.HasPrefix(bind, "/") {
 		return s.server.ListenAndServeUNIX(bind, 0777)

@@ -13,6 +13,7 @@ import (
 
 	"github.com/VimeWorld/matches-db/types"
 	"github.com/dgraph-io/badger"
+	badgerOptions "github.com/dgraph-io/badger/options"
 	"github.com/klauspost/compress/flate"
 )
 
@@ -33,9 +34,10 @@ func (s *MatchesStorage) Open(path string, truncate bool) error {
 	opts.Dir = path
 	opts.ValueDir = path
 	opts.Truncate = truncate
-	opts.MaxTableSize = 16 << 20
+	opts.MaxTableSize = 32 << 20
 	opts.NumMemtables = 2
 	opts.LevelOneSize = 32 << 20
+	opts.ValueLogLoadingMode = badgerOptions.FileIO
 	opts.Logger = &logWrapper{log.New(os.Stderr, "badger-matches ", log.LstdFlags)}
 
 	db, err := badger.Open(opts)
@@ -76,7 +78,7 @@ func (s *MatchesStorage) ImportFromDir(dir string) error {
 							if err != nil {
 								return err
 							}
-							if written > 3000000 {
+							if written > 15000000 {
 								return nil
 							}
 						} else {
@@ -181,6 +183,10 @@ func (s *MatchesStorage) Transaction(fn func(txn *MatchesTransaction) error) err
 			compressThreshold: s.CompressThreshold,
 		})
 	})
+}
+
+func (s *MatchesStorage) Flatten() error {
+	return s.db.Flatten(3)
 }
 
 func (s *MatchesStorage) Backup() error {

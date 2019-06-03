@@ -1,56 +1,8 @@
 package api
 
 import (
-	"github.com/VimeWorld/matches-db/storage"
 	"github.com/qiangxue/fasthttp-routing"
 )
-
-func (s *Server) handleAddUserMatch(c *routing.Context) error {
-	req := RequestSave{}
-	err := json.Unmarshal(c.PostBody(), &req)
-	if err != nil {
-		return err
-	}
-
-	err = s.Users.Transaction(func(txn *storage.UsersTransaction) error {
-		for _, user := range req.Users {
-			err := txn.AddMatch(user.Id, req.MatchId, user.Win)
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	}, true)
-	if err != nil {
-		return err
-	}
-
-	return writeBody(c, "OK", 200)
-}
-
-func (s *Server) handleAddUserMatches(c *routing.Context) error {
-	req := []RequestSave(nil)
-	err := json.Unmarshal(c.PostBody(), &req)
-	if err != nil {
-		return err
-	}
-	err = s.Users.Transaction(func(txn *storage.UsersTransaction) error {
-		for _, match := range req {
-			for _, user := range match.Users {
-				err := txn.AddMatch(user.Id, match.MatchId, user.Win)
-				if err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	}, true)
-	if err != nil {
-		return err
-	}
-
-	return writeBody(c, "OK", 200)
-}
 
 func (s *Server) handleUserMatches(c *routing.Context) error {
 	user := parseInt(c.QueryArgs().Peek("user"), 0)
