@@ -35,9 +35,13 @@ func (s *MatchesStorage) Open(path string, truncate bool) error {
 	opts.ValueDir = path
 	opts.Truncate = truncate
 	opts.MaxTableSize = 32 << 20
-	opts.NumMemtables = 2
+	opts.NumMemtables = 1
+	opts.NumLevelZeroTables = 1
+	opts.NumLevelZeroTablesStall = 2
+	opts.NumCompactors = 1
 	opts.LevelOneSize = 32 << 20
 	opts.ValueLogLoadingMode = badgerOptions.FileIO
+	opts.TableLoadingMode = badgerOptions.MemoryMap
 	opts.Logger = &logWrapper{log.New(os.Stderr, "badger-matches ", log.LstdFlags)}
 
 	db, err := badger.Open(opts)

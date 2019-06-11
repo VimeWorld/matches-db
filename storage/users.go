@@ -7,6 +7,7 @@ import (
 
 	"github.com/VimeWorld/matches-db/types"
 	"github.com/dgraph-io/badger"
+	badgerOptions "github.com/dgraph-io/badger/options"
 )
 
 const (
@@ -35,13 +36,16 @@ func (s *UserStorage) Open(path string, truncate bool) error {
 	opts.Dir = path
 	opts.ValueDir = path
 	opts.Truncate = truncate
-	opts.ValueThreshold = 32
-	opts.ValueLogFileSize = 128 << 20
 	opts.MaxTableSize = 32 << 20
-	opts.NumMemtables = 2
-	opts.LevelOneSize = 32 << 20
+	opts.NumMemtables = 1
 	opts.NumLevelZeroTables = 1
 	opts.NumLevelZeroTablesStall = 2
+	opts.NumCompactors = 1
+	opts.LevelOneSize = 32 << 20
+	opts.ValueThreshold = 32
+	opts.ValueLogFileSize = 128 << 20
+	opts.ValueLogLoadingMode = badgerOptions.FileIO
+	opts.TableLoadingMode = badgerOptions.MemoryMap
 	opts.Logger = &logWrapper{log.New(os.Stderr, "badger-users ", log.LstdFlags)}
 
 	db, err := badger.Open(opts)

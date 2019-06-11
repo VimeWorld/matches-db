@@ -29,7 +29,7 @@ func main() {
 	defer func() { _ = users.Close() }()
 
 	matches := &storage.MatchesStorage{
-		CompressThreshold: 512,
+		CompressThreshold: 256,
 	}
 	if err := matches.Open(*matchesPath, *truncate); err != nil {
 		log.Printf("Could not open matches database: %s", err)
