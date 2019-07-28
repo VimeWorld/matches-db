@@ -221,7 +221,7 @@ func (t *MatchesTransaction) Put(id uint64, data []byte, copy bool) error {
 }
 
 var deflaters = sync.Pool{New: func() interface{} {
-	w, _ := flate.NewWriter(nil, 3)
+	w, _ := flate.NewWriter(nil, -1)
 	return w
 }}
 var inflaters = sync.Pool{New: func() interface{} {
