@@ -18,28 +18,22 @@ func (s *Server) handleUserMatches(c *routing.Context) error {
 		return writeBody(c, "invalid user id", 400)
 	}
 
-	matches, err := s.Users.GetLastUserMatches(uint32(user), count+offset)
+	matches, err := s.Users.GetLastUserMatches(uint32(user), offset, count)
 	if err != nil {
 		return err
 	}
 
-	end := len(matches) - offset
-	start := end - count
-	if start < 0 {
-		start = 0
-	}
-
 	c.Response.Header.Set("Content-Type", "application/json")
-	if end <= 0 {
+	if len(matches) == 0 {
 		_, err = c.WriteString("[]")
 		return err
 	}
 
 	stream := json.BorrowStream(c)
 	stream.WriteArrayStart()
-	for i := end - 1; i >= start; i-- {
+	for i := len(matches) - 1; i >= 0; i-- {
 		stream.WriteVal(matches[i])
-		if i != start {
+		if i != 0 {
 			stream.WriteMore()
 		}
 	}

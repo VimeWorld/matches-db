@@ -80,7 +80,18 @@ func (s *Server) handlePostMatch(c *routing.Context) error {
 
 	err = s.Users.Transaction(func(txn *storage.UsersTransaction) error {
 		for _, user := range users {
-			err := txn.AddMatch(user, id, uint32SliceContains(winners, user))
+			var state byte = 0
+			if len(winners) == 0 {
+				state = 2
+			} else {
+				for _, a := range winners {
+					if user == a {
+						state = 1
+						break
+					}
+				}
+			}
+			err := txn.AddMatch(user, id, state)
 			if err != nil {
 				return err
 			}
@@ -92,13 +103,4 @@ func (s *Server) handlePostMatch(c *routing.Context) error {
 	}
 
 	return writeBody(c, "OK", 200)
-}
-
-func uint32SliceContains(arr []uint32, e uint32) bool {
-	for _, a := range arr {
-		if e == a {
-			return true
-		}
-	}
-	return false
 }

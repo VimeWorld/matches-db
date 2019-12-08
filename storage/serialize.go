@@ -32,7 +32,7 @@ func (b *byteBuf) Reset(buf []byte, grow bool) {
 	b.buf = buf
 	b.writerIndex = 0
 	b.readerIndex = 0
-	b.grow = false
+	b.grow = grow
 }
 
 func (b *byteBuf) Write(p []byte) {
@@ -124,7 +124,7 @@ func readMatches(version byte, buf []byte) ([]*types.UserMatch, error) {
 		for buffer.Remaining() > 0 {
 			m := &types.UserMatch{}
 			m.Id = buffer.ReadUint64()
-			m.Win = buffer.ReadBool()
+			m.State = buffer.ReadByte()
 			matches[index] = m
 			index++
 		}
@@ -136,7 +136,7 @@ func readMatches(version byte, buf []byte) ([]*types.UserMatch, error) {
 func readMatch(version byte, reader *byteBuf, match *types.UserMatch) error {
 	if version == 1 {
 		match.Id = reader.ReadUint64()
-		match.Win = reader.ReadBool()
+		match.State = reader.ReadByte()
 		return nil
 	}
 	return errors.New(fmt.Sprint("unsupported version", version))
@@ -152,13 +152,13 @@ func writeMatches(matches []*types.UserMatch) ([]byte, error) {
 
 func writeMatch(writer *byteBuf, match *types.UserMatch) {
 	writer.WriteUint64(match.Id)
-	writer.WriteBool(match.Win)
+	writer.WriteByte(match.State)
 }
 
-func serializeMatch(id uint64, win bool) []byte {
+func serializeMatch(id uint64, state byte) []byte {
 	buf := newByteBuf(make([]byte, matchSize), false)
 	buf.WriteUint64(id)
-	buf.WriteBool(win)
+	buf.WriteByte(state)
 	return buf.buf
 }
 

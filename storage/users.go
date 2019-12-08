@@ -59,10 +59,10 @@ func (s *UserStorage) Open(path string, truncate bool) error {
 	return nil
 }
 
-func (s *UserStorage) GetLastUserMatches(id uint32, count int) ([]*types.UserMatch, error) {
+func (s *UserStorage) GetLastUserMatches(id uint32, offset, count int) ([]*types.UserMatch, error) {
 	var matches []*types.UserMatch
 	err := s.Transaction(func(txn *UsersTransaction) error {
-		m, err := txn.GetLastUserMatches(id, count)
+		m, err := txn.GetLastUserMatches(id, offset, count)
 		matches = m
 		return err
 	}, false)
@@ -159,7 +159,7 @@ func (s *UserStorage) removeOldMatchesRecursive(deadline time.Time, deleted int)
 }
 
 func (s *UserStorage) Transaction(fn func(txn *UsersTransaction) error, update bool) error {
-	return s.db.Update(func(txn *badger.Txn) error {
+	cb := func(txn *badger.Txn) error {
 		userTxn := &UsersTransaction{
 			txn: txn,
 		}
@@ -167,7 +167,12 @@ func (s *UserStorage) Transaction(fn func(txn *UsersTransaction) error, update b
 			return err
 		}
 		return nil
-	})
+	}
+	if update {
+		return s.db.Update(cb)
+	} else {
+		return s.db.View(cb)
+	}
 }
 
 func (s *UserStorage) BigTransaction(fn func(txn *UsersTransaction) error, update bool) (overrun bool, err error) {
@@ -203,8 +208,8 @@ type UsersTransaction struct {
 	txn *badger.Txn
 }
 
-func (t *UsersTransaction) AddMatch(userid uint32, matchid uint64, win bool) error {
-	value := serializeMatch(matchid, win)
+func (t *UsersTransaction) AddMatch(userid uint32, matchid uint64, state byte) error {
+	value := serializeMatch(matchid, state)
 	bucket := getBucket(matchid)
 	userBytes := serializeUint32(userid)
 	err := appendValueIfNotExists(t.txn, userBytes, bucket, bucketsDescriptor)
@@ -217,24 +222,47 @@ func (t *UsersTransaction) AddMatch(userid uint32, matchid uint64, win bool) err
 	return appendValue(t.txn, key, value, userMatchesDescriptor)
 }
 
-func (t *UsersTransaction) GetLastUserMatches(userid uint32, count int) ([]*types.UserMatch, error) {
+func (t *UsersTransaction) GetLastUserMatches(userid uint32, offset, count int) ([]*types.UserMatch, error) {
 	key := serializeUint32(userid)
 	var matches []*types.UserMatch
 	buckets, err := t.getBuckets(key)
 	if err != nil {
 		return matches, err
 	}
+	offsetBytes := offset * matchSize
+	remainingBytes := count * matchSize
 	k := make([]byte, keyLength+bucketLength)
 	copy(k, key)
 	for i := len(buckets) - 1; i >= 0; i-- {
 		copy(k[keyLength:], buckets[i])
-		temp, err := t.getMatches(k)
+		value, version, err := getWithValue(t.txn, k)
 		if err != nil {
+			if err == badger.ErrKeyNotFound {
+				continue
+			}
 			return matches, err
 		}
-		if len(temp) >= count && matches == nil {
-			matches = temp
-			break
+
+		// Пропускаем все матчи без их считывания
+		if offsetBytes > 0 {
+			if len(value) <= offsetBytes {
+				offsetBytes -= len(value)
+				continue
+			}
+			value = value[:len(value)-offsetBytes]
+			offsetBytes = 0
+		}
+
+		// Чтобы не читать лишнего, ограничиваем
+		if len(value) > remainingBytes {
+			value = value[len(value)-remainingBytes:]
+		} else {
+			remainingBytes -= len(value)
+		}
+
+		temp, err := readMatches(version, value)
+		if err != nil {
+			return matches, err
 		}
 		matches = append(temp, matches...)
 		if len(matches) >= count {
