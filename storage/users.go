@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/VimeWorld/matches-db/types"
-	"github.com/dgraph-io/badger"
-	badgerOptions "github.com/dgraph-io/badger/options"
+	"github.com/dgraph-io/badger/v2"
+	badgerOptions "github.com/dgraph-io/badger/v2/options"
 )
 
 const (
@@ -32,20 +32,21 @@ type UserStorage struct {
 }
 
 func (s *UserStorage) Open(path string, truncate bool) error {
-	opts := badger.DefaultOptions
-	opts.Dir = path
-	opts.ValueDir = path
+	opts := badger.DefaultOptions(path)
 	opts.Truncate = truncate
-	opts.MaxTableSize = 32 << 20
+	opts.MaxTableSize = 64 << 20
 	opts.NumMemtables = 1
 	opts.NumLevelZeroTables = 1
 	opts.NumLevelZeroTablesStall = 2
+	opts.KeepL0InMemory = false
 	opts.NumCompactors = 1
 	opts.LevelOneSize = 32 << 20
 	opts.ValueThreshold = 32
 	opts.ValueLogFileSize = 128 << 20
 	opts.ValueLogLoadingMode = badgerOptions.FileIO
 	opts.TableLoadingMode = badgerOptions.MemoryMap
+	opts.Compression = badgerOptions.Snappy
+	opts.MaxCacheSize = 1 << 20
 	opts.Logger = &logWrapper{log.New(os.Stderr, "badger-users ", log.LstdFlags)}
 
 	db, err := badger.Open(opts)
@@ -138,7 +139,7 @@ func (s *UserStorage) removeOldMatchesRecursive(deadline time.Time, deleted int)
 					}
 					if buffer.readerIndex > 0 {
 						copiedVal := append(val[:0:0], val[buffer.readerIndex:]...)
-						return btxn.SetWithMeta(item.KeyCopy(nil), copiedVal, ver)
+						return btxn.SetEntry(badger.NewEntry(item.KeyCopy(nil), copiedVal).WithMeta(ver))
 					}
 					return nil
 				})

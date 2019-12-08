@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/VimeWorld/matches-db/types"
-	"github.com/dgraph-io/badger"
-	badgerOptions "github.com/dgraph-io/badger/options"
+	"github.com/dgraph-io/badger/v2"
+	badgerOptions "github.com/dgraph-io/badger/v2/options"
 	"github.com/klauspost/compress/flate"
 )
 
@@ -30,18 +30,19 @@ type MatchesStorage struct {
 }
 
 func (s *MatchesStorage) Open(path string, truncate bool) error {
-	opts := badger.DefaultOptions
-	opts.Dir = path
-	opts.ValueDir = path
+	opts := badger.DefaultOptions(path)
 	opts.Truncate = truncate
 	opts.MaxTableSize = 32 << 20
 	opts.NumMemtables = 1
 	opts.NumLevelZeroTables = 1
 	opts.NumLevelZeroTablesStall = 2
+	opts.KeepL0InMemory = false
 	opts.NumCompactors = 1
 	opts.LevelOneSize = 32 << 20
 	opts.ValueLogLoadingMode = badgerOptions.FileIO
 	opts.TableLoadingMode = badgerOptions.MemoryMap
+	opts.Compression = badgerOptions.Snappy
+	opts.MaxCacheSize = 1 << 20
 	opts.Logger = &logWrapper{log.New(os.Stderr, "badger-matches ", log.LstdFlags)}
 
 	db, err := badger.Open(opts)
@@ -212,12 +213,12 @@ func (t *MatchesTransaction) Put(id uint64, data []byte, copy bool) error {
 		if err != nil {
 			return err
 		}
-		return t.txn.SetWithMeta(serializeUint64(id), data, matchesMetaTypeFlate)
+		return t.txn.SetEntry(badger.NewEntry(serializeUint64(id), data).WithMeta(matchesMetaTypeFlate))
 	}
 	if copy {
 		data = append(data[:0:0], data...)
 	}
-	return t.txn.SetWithMeta(serializeUint64(id), data, matchesMetaTypeRaw)
+	return t.txn.SetEntry(badger.NewEntry(serializeUint64(id), data).WithMeta(matchesMetaTypeRaw))
 }
 
 var deflaters = sync.Pool{New: func() interface{} {

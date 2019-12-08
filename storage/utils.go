@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/dgraph-io/badger"
+	"github.com/dgraph-io/badger/v2"
 )
 
 type valueDescriptor struct {
@@ -26,7 +26,7 @@ func appendValue(txn *badger.Txn, key, appendix []byte, config *valueDescriptor)
 	stored, version, err := getWithValue(txn, key)
 
 	if err == badger.ErrKeyNotFound {
-		return txn.SetWithMeta(key, appendix, config.version)
+		return txn.SetEntry(badger.NewEntry(key, appendix).WithMeta(config.version))
 	} else if err != nil {
 		return err
 	}
@@ -36,16 +36,13 @@ func appendValue(txn *badger.Txn, key, appendix []byte, config *valueDescriptor)
 		if err != nil {
 			return err
 		}
-		newValue := make([]byte, len(fixed)+len(appendix))
-		copy(newValue, fixed)
-		copy(newValue[len(fixed):], appendix)
-		return txn.SetWithMeta(key, newValue, config.version)
+		stored = fixed
 	}
 
 	newValue := make([]byte, len(stored)+len(appendix))
 	copy(newValue, stored)
 	copy(newValue[len(stored):], appendix)
-	return txn.SetWithMeta(key, newValue, config.version)
+	return txn.SetEntry(badger.NewEntry(key, newValue).WithMeta(config.version))
 }
 
 // Метод аналогичен appendValue, за исключением того что сохраненные данные воспринимаются
@@ -56,7 +53,7 @@ func appendValueIfNotExists(txn *badger.Txn, key, appendix []byte, config *value
 	stored, version, err := getWithValue(txn, key)
 
 	if err == badger.ErrKeyNotFound {
-		return txn.SetWithMeta(key, appendix, config.version)
+		return txn.SetEntry(badger.NewEntry(key, appendix).WithMeta(config.version))
 	} else if err != nil {
 		return err
 	}
@@ -89,7 +86,7 @@ func appendValueIfNotExists(txn *badger.Txn, key, appendix []byte, config *value
 	}
 
 	if updated {
-		return txn.SetWithMeta(key, stored, config.version)
+		return txn.SetEntry(badger.NewEntry(key, stored).WithMeta(config.version))
 	}
 	return nil
 }
@@ -128,7 +125,7 @@ func removeValue(txn *badger.Txn, key, value []byte, multiple bool, config *valu
 		return txn.Delete(key)
 	}
 	if updated {
-		return txn.SetWithMeta(key, stored, config.version)
+		return txn.SetEntry(badger.NewEntry(key, stored).WithMeta(config.version))
 	}
 	return nil
 }
