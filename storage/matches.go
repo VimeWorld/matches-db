@@ -2,12 +2,10 @@ package storage
 
 import (
 	"bytes"
+	"errors"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +22,7 @@ const (
 
 type MatchesStorage struct {
 	CompressThreshold int
+	WriteLocked       bool
 
 	db   *badger.DB
 	path string
@@ -56,61 +55,12 @@ func (s *MatchesStorage) Open(path string, truncate bool) error {
 	return nil
 }
 
-func (s *MatchesStorage) ImportFromDir(dir string) error {
-	files, err := ioutil.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-	for {
-		written := 0
-		err = s.Transaction(func(txn *MatchesTransaction) error {
-			for _, file := range files {
-				if strings.HasSuffix(file.Name(), ".json") {
-					num, err := strconv.ParseInt(file.Name()[:len(file.Name())-5], 10, 64)
-					if err != nil {
-						continue
-					}
-					key := serializeUint64(uint64(num))
-					_, err = txn.txn.Get(key)
-					if err != nil {
-						if err == badger.ErrKeyNotFound {
-							data, err := ioutil.ReadFile(dir + "/" + file.Name())
-							if err != nil {
-								return err
-							}
-							written += len(data)
-							err = txn.Put(uint64(num), data, false)
-							if err != nil {
-								return err
-							}
-							if written > 15000000 {
-								return nil
-							}
-						} else {
-							return err
-						}
-					}
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-		if written == 0 {
-			break
-		}
-		log.Printf("Recommit")
-	}
-	log.Printf("Import done")
-	return err
-}
-
 func (s *MatchesStorage) RemoveOldMatches(deadline time.Time) (deleted int, err error) {
-	return s.removeOldMatchesRecursive(uint64(deadline.Unix()*1000), 0)
+	return s.removeOldMatchesRecursive(uint64(deadline.Unix()*1000), 0, 0)
 }
 
-func (s *MatchesStorage) removeOldMatchesRecursive(deadline uint64, deleted int) (int, error) {
+func (s *MatchesStorage) removeOldMatchesRecursive(deadline uint64, deleted, retry int) (int, error) {
+	deletedNow := 0
 	overrun, err := s.BigTransaction(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.IteratorOptions{
 			PrefetchValues: false,
@@ -125,7 +75,7 @@ func (s *MatchesStorage) removeOldMatchesRecursive(deadline uint64, deleted int)
 				if err != nil {
 					return err
 				}
-				deleted++
+				deletedNow++
 			} else {
 				return nil
 			}
@@ -133,10 +83,20 @@ func (s *MatchesStorage) removeOldMatchesRecursive(deadline uint64, deleted int)
 		return nil
 	}, true)
 
+	if err == badger.ErrConflict {
+		if retry >= 10 {
+			return deleted, errors.New("too many conflicts")
+		}
+		log.Println("[Matches] Conflict. Retry", retry)
+		return s.removeOldMatchesRecursive(deadline, deleted, retry+1)
+	}
+
+	deleted += deletedNow
+
 	// Если размер транзакции слишком большой, то оно закоммитит что есть и будет еще один проход
 	if overrun && err == nil {
-		log.Println("Cleanup running out of txn size. Repeating")
-		return s.removeOldMatchesRecursive(deadline, deleted)
+		log.Println("[Matches] Cleanup running out of txn size. Repeating")
+		return s.removeOldMatchesRecursive(deadline, deleted, 0)
 	}
 	return deleted, err
 }

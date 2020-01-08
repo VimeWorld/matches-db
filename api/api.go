@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/VimeWorld/matches-db/storage"
+	"github.com/fasthttp/router"
 	"github.com/json-iterator/go"
-	"github.com/qiangxue/fasthttp-routing"
 	"github.com/valyala/fasthttp"
 )
 
@@ -23,19 +23,18 @@ type Server struct {
 }
 
 func (s *Server) Bind(bind string) error {
-	router := routing.New()
-	router.Get("/user/getMatches", s.handleUserMatches)
+	r := router.New()
+	r.GET("/user/getMatches", s.handleUserMatches)
 
-	router.Get(`/match/<id:\d+>`, s.handleGetMatch)
-	router.Post(`/match/<id:\d+>`, s.handlePostMatch)
+	r.GET(`/match/:id`, s.handleGetMatch)
+	r.POST(`/match/:id`, s.handlePostMatch)
 
-	router.Get("/manage/importMatchFiles", s.handleImport)
-	router.Get("/manage/backup", s.handleBackup)
-	router.Get("/manage/cleanup", s.handleCleanup)
-	router.Get("/manage/flatten", s.handleFlatten)
+	r.GET("/manage/backup", s.handleBackup)
+	r.GET("/manage/cleanup", s.handleCleanup)
+	r.GET("/manage/flatten", s.handleFlatten)
 
 	s.server = &fasthttp.Server{
-		Handler:           s.loggingHandler(router.HandleRequest),
+		Handler:           s.loggingHandler(r.Handler),
 		Name:              "matches-db",
 		ReadTimeout:       60 * time.Second,
 		ReduceMemoryUsage: true,
@@ -72,9 +71,4 @@ func parseInt(stringSlice []byte, fallback int) int {
 		return fallback
 	}
 	return num
-}
-
-func writeBody(c *routing.Context, message string, status int) error {
-	c.Error(message, status)
-	return nil
 }

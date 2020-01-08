@@ -5,31 +5,35 @@ import (
 
 	"github.com/VimeWorld/matches-db/storage"
 	"github.com/json-iterator/go"
-	"github.com/qiangxue/fasthttp-routing"
+	"github.com/valyala/fasthttp"
 )
 
-func (s *Server) handleGetMatch(c *routing.Context) error {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+func (s *Server) handleGetMatch(c *fasthttp.RequestCtx) {
+	id, err := strconv.ParseInt(c.UserValue("id").(string), 10, 64)
 	if err != nil {
-		return err
+		c.Error(err.Error(), 400)
+		return
 	}
 
 	data, err := s.Matches.Get(uint64(id))
 	if err != nil {
-		return err
+		c.Error(err.Error(), 500)
+		return
 	}
 	if data == nil {
-		return writeBody(c, "match not found", 404)
+		c.Error("match not found", 404)
+		return
 	}
 
 	c.SetBody(data)
-	return nil
 }
 
-func (s *Server) handlePostMatch(c *routing.Context) error {
-	intId, err := strconv.ParseInt(c.Param("id"), 10, 64)
+func (s *Server) handlePostMatch(c *fasthttp.RequestCtx) {
+
+	intId, err := strconv.ParseInt(c.UserValue("id").(string), 10, 64)
 	if err != nil {
-		return err
+		c.Error(err.Error(), 400)
+		return
 	}
 	id := uint64(intId)
 
@@ -37,7 +41,8 @@ func (s *Server) handlePostMatch(c *routing.Context) error {
 		return txn.Put(id, c.PostBody(), true)
 	})
 	if err != nil {
-		return err
+		c.Error(err.Error(), 500)
+		return
 	}
 
 	var winners []uint32
@@ -99,8 +104,9 @@ func (s *Server) handlePostMatch(c *routing.Context) error {
 		return nil
 	}, true)
 	if err != nil {
-		return err
+		c.Error(err.Error(), 500)
+		return
 	}
 
-	return writeBody(c, "OK", 200)
+	c.Error("OK", 200)
 }

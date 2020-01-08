@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"log"
 	"os"
 	"time"
@@ -71,12 +72,13 @@ func (s *UserStorage) GetLastUserMatches(id uint32, offset, count int) ([]*types
 }
 
 func (s *UserStorage) RemoveOldMatches(deadline time.Time) (deleted int, err error) {
-	return s.removeOldMatchesRecursive(deadline, deleted)
+	return s.removeOldMatchesRecursive(deadline, deleted, 0)
 }
 
-func (s *UserStorage) removeOldMatchesRecursive(deadline time.Time, deleted int) (int, error) {
+func (s *UserStorage) removeOldMatchesRecursive(deadline time.Time, deleted, retry int) (int, error) {
 	deadlineMillis := uint64(deadline.Unix() * 1000)
 	maxBucketNumber := getBucketNumber(time.Duration(deadlineMillis) * time.Millisecond)
+	deletedNow := 0
 	overrun, err := s.BigTransaction(func(txn *UsersTransaction) error {
 		btxn := txn.txn
 		it := btxn.NewIterator(badger.IteratorOptions{
@@ -110,14 +112,17 @@ func (s *UserStorage) removeOldMatchesRecursive(deadline time.Time, deleted int)
 				if err != nil {
 					return err
 				}
+				deletedNow++
 				continue
 			}
 
 			// Номер ведра равен последнему, а значит в нем лежат матчи, которые нужно отфильтровать
 			if bucketNumber == maxBucketNumber {
+				changed := false
 				ver := item.UserMeta()
 				err := item.Value(func(val []byte) error {
 					buffer.Reset(val, false)
+					// Удаление матчей из ведра
 					for buffer.Remaining() > 0 {
 						err := readMatch(ver, buffer, match)
 						if err != nil {
@@ -126,9 +131,10 @@ func (s *UserStorage) removeOldMatchesRecursive(deadline time.Time, deleted int)
 						if types.GetSnowflakeTs(match.Id) >= deadlineMillis {
 							break
 						} else {
-							deleted++
+							changed = true
 						}
 					}
+					// Если ведро осталось пустым
 					if buffer.Remaining() == 0 {
 						key := item.KeyCopy(nil)
 						err := removeValue(btxn, key[:keyLength], bucket, false, bucketsDescriptor)
@@ -146,15 +152,32 @@ func (s *UserStorage) removeOldMatchesRecursive(deadline time.Time, deleted int)
 				if err != nil {
 					return err
 				}
+				if changed {
+					deletedNow++
+				}
+			}
+			if deletedNow > 5000 {
+				// Форсим коммит, чтобы была меньше вероятность конфликтов
+				return badger.ErrTxnTooBig
 			}
 		}
 		return nil
 	}, true)
 
+	if err == badger.ErrConflict {
+		if retry >= 10 {
+			return deleted, errors.New("too many conflicts")
+		}
+		log.Println("[Users] Conflict. Retry", retry)
+		return s.removeOldMatchesRecursive(deadline, deleted, retry+1)
+	}
+
+	deleted += deletedNow
+
 	// Если размер транзакции слишком большой, то оно закоммитит что есть и будет еще один проход
 	if overrun && err == nil {
-		log.Println("Cleanup running out of txn size. Repeating")
-		return s.removeOldMatchesRecursive(deadline, deleted)
+		log.Println("[Users] Cleanup running out of txn size. Repeating")
+		return s.removeOldMatchesRecursive(deadline, deleted, 0)
 	}
 	return deleted, err
 }
