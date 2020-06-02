@@ -29,7 +29,6 @@ func (s *Server) handleGetMatch(c *fasthttp.RequestCtx) {
 }
 
 func (s *Server) handlePostMatch(c *fasthttp.RequestCtx) {
-
 	intId, err := strconv.ParseInt(c.UserValue("id").(string), 10, 64)
 	if err != nil {
 		c.Error(err.Error(), 400)

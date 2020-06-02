@@ -26,8 +26,8 @@ func (s *Server) Bind(bind string) error {
 	r := router.New()
 	r.GET("/user/getMatches", s.handleUserMatches)
 
-	r.GET(`/match/:id`, s.handleGetMatch)
-	r.POST(`/match/:id`, s.handlePostMatch)
+	r.GET(`/match/{id}`, s.handleGetMatch)
+	r.POST(`/match/{id}`, s.handlePostMatch)
 
 	r.GET("/manage/backup", s.handleBackup)
 	r.GET("/manage/cleanup", s.handleCleanup)

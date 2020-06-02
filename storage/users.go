@@ -33,22 +33,21 @@ type UserStorage struct {
 }
 
 func (s *UserStorage) Open(path string, truncate bool) error {
-	opts := badger.DefaultOptions(path)
-	opts.Truncate = truncate
-	opts.MaxTableSize = 64 << 20
-	opts.NumMemtables = 1
-	opts.NumLevelZeroTables = 1
-	opts.NumLevelZeroTablesStall = 2
-	opts.KeepL0InMemory = false
-	opts.NumCompactors = 1
-	opts.LevelOneSize = 32 << 20
-	opts.ValueThreshold = 32
-	opts.ValueLogFileSize = 128 << 20
-	opts.ValueLogLoadingMode = badgerOptions.FileIO
-	opts.TableLoadingMode = badgerOptions.MemoryMap
-	opts.Compression = badgerOptions.Snappy
-	opts.MaxCacheSize = 1 << 20
-	opts.Logger = &logWrapper{log.New(os.Stderr, "badger-users ", log.LstdFlags)}
+	opts := badger.DefaultOptions(path).
+		WithTruncate(truncate).
+		WithNumMemtables(1).
+		WithNumLevelZeroTables(1).
+		WithNumLevelZeroTablesStall(2).
+		WithKeepL0InMemory(false).
+		WithNumCompactors(1).
+		WithLevelOneSize(32 << 20).
+		WithValueLogFileSize(128 << 20).
+		WithValueLogLoadingMode(badgerOptions.FileIO).
+		WithMaxBfCacheSize(5 << 20).
+		WithMaxCacheSize(2 << 20).
+		WithCompression(badgerOptions.ZSTD).
+		WithZSTDCompressionLevel(1).
+		WithLogger(&logWrapper{log.New(os.Stderr, "badger-users ", log.LstdFlags)})
 
 	db, err := badger.Open(opts)
 	if err != nil {
