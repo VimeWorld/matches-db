@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"os"
+	"sort"
 	"time"
 
 	"github.com/VimeWorld/matches-db/types"
@@ -70,13 +71,33 @@ func (s *UserStorage) GetLastUserMatches(id uint32, offset, count int) ([]*types
 	return matches, err
 }
 
+func (s *UserStorage) GetUserMatchesAfter(id uint32, begin uint64, count int) ([]*types.UserMatch, error) {
+	var matches []*types.UserMatch
+	err := s.Transaction(func(txn *UsersTransaction) error {
+		m, err := txn.GetUserMatchesAfter(id, begin, count)
+		matches = m
+		return err
+	}, false)
+	return matches, err
+}
+
+func (s *UserStorage) GetUserMatchesBefore(id uint32, begin uint64, count int) ([]*types.UserMatch, error) {
+	var matches []*types.UserMatch
+	err := s.Transaction(func(txn *UsersTransaction) error {
+		m, err := txn.GetUserMatchesBefore(id, begin, count)
+		matches = m
+		return err
+	}, false)
+	return matches, err
+}
+
 func (s *UserStorage) RemoveOldMatches(deadline time.Time) (deleted int, err error) {
 	return s.removeOldMatchesRecursive(deadline, deleted, 0)
 }
 
 func (s *UserStorage) removeOldMatchesRecursive(deadline time.Time, deleted, retry int) (int, error) {
 	deadlineMillis := uint64(deadline.Unix() * 1000)
-	maxBucketNumber := getBucketNumber(time.Duration(deadlineMillis) * time.Millisecond)
+	maxBucketNumber := getBucketNumberFromMillis(time.Duration(deadlineMillis) * time.Millisecond)
 	deletedNow := 0
 	overrun, err := s.BigTransaction(func(txn *UsersTransaction) error {
 		btxn := txn.txn
@@ -233,7 +254,7 @@ type UsersTransaction struct {
 
 func (t *UsersTransaction) AddMatch(userid uint32, matchid uint64, state byte) error {
 	value := serializeMatch(matchid, state)
-	bucket := getBucket(matchid)
+	bucket := serializeUint32(getBucketNumberFromId(matchid))
 	userBytes := serializeUint32(userid)
 	err := appendValueIfNotExists(t.txn, userBytes, bucket, bucketsDescriptor)
 	if err != nil {
@@ -256,6 +277,7 @@ func (t *UsersTransaction) GetLastUserMatches(userid uint32, offset, count int) 
 	remainingBytes := count * matchSize
 	k := make([]byte, keyLength+bucketLength)
 	copy(k, key)
+	// search in reverse order
 	for i := len(buckets) - 1; i >= 0; i-- {
 		copy(k[keyLength:], buckets[i])
 		value, version, err := getWithValue(t.txn, k)
@@ -287,6 +309,110 @@ func (t *UsersTransaction) GetLastUserMatches(userid uint32, offset, count int) 
 		if err != nil {
 			return matches, err
 		}
+		matches = append(temp, matches...)
+		if len(matches) >= count {
+			break
+		}
+	}
+	return matches, nil
+}
+
+func (t *UsersTransaction) GetUserMatchesAfter(userid uint32, begin uint64, count int) ([]*types.UserMatch, error) {
+	key := serializeUint32(userid)
+	var matches []*types.UserMatch
+	buckets, err := t.getBuckets(key)
+	if err != nil {
+		return matches, err
+	}
+	k := make([]byte, keyLength+bucketLength)
+	copy(k, key)
+	fromBucket := getBucketNumberFromId(begin)
+	for i := 0; i < len(buckets); i++ {
+		currentBucket := byteOrder.Uint32(buckets[i])
+		if currentBucket < fromBucket {
+			continue
+		}
+
+		copy(k[keyLength:], buckets[i])
+		value, version, err := getWithValue(t.txn, k)
+		if err != nil {
+			if err == badger.ErrKeyNotFound {
+				continue
+			}
+			return matches, err
+		}
+
+		idxFrom := sort.Search(len(value)/matchSize, func(idx int) bool {
+			id := byteOrder.Uint64(value[idx*matchSize : (idx+1)*matchSize])
+			return id > begin
+		})
+
+		idxTo := len(value) / matchSize
+		if idxTo-idxFrom > count-len(matches) {
+			idxTo = idxFrom + count - len(matches)
+		}
+		if idxTo == idxFrom {
+			continue
+		}
+
+		temp, err := readMatches(version, value[idxFrom*matchSize:idxTo*matchSize])
+		if err != nil {
+			return matches, err
+		}
+
+		matches = append(matches, temp...)
+		if len(matches) >= count {
+			break
+		}
+	}
+	return matches, nil
+}
+
+func (t *UsersTransaction) GetUserMatchesBefore(userid uint32, begin uint64, count int) ([]*types.UserMatch, error) {
+	key := serializeUint32(userid)
+	var matches []*types.UserMatch
+	buckets, err := t.getBuckets(key)
+	if err != nil {
+		return matches, err
+	}
+	k := make([]byte, keyLength+bucketLength)
+	copy(k, key)
+	fromBucket := getBucketNumberFromId(begin)
+
+	// search in reverse order
+	for i := len(buckets) - 1; i >= 0; i-- {
+		currentBucket := byteOrder.Uint32(buckets[i])
+		if currentBucket > fromBucket {
+			continue
+		}
+
+		copy(k[keyLength:], buckets[i])
+		value, version, err := getWithValue(t.txn, k)
+		if err != nil {
+			if err == badger.ErrKeyNotFound {
+				continue
+			}
+			return matches, err
+		}
+
+		idxTo := sort.Search(len(value)/matchSize, func(idx int) bool {
+			id := byteOrder.Uint64(value[idx*matchSize : (idx+1)*matchSize])
+			return id >= begin
+		})
+		if idxTo == 0 {
+			continue
+		}
+
+		idxFrom := 0
+		if idxTo > count-len(matches) {
+			idxFrom = idxTo - (count - len(matches))
+		}
+
+		temp, err := readMatches(version, value[idxFrom*matchSize:idxTo*matchSize])
+		if err != nil {
+			return matches, err
+		}
+
 		matches = append(temp, matches...)
 		if len(matches) >= count {
 			break
@@ -327,11 +453,10 @@ func migrateMatches(old []byte, version byte) ([]byte, error) {
 	return writeMatches(matches)
 }
 
-func getBucket(matchid uint64) []byte {
-	d := time.Duration(types.GetSnowflakeTs(matchid)) * time.Millisecond
-	return serializeUint32(getBucketNumber(d))
+func getBucketNumberFromId(matchid uint64) uint32 {
+	return getBucketNumberFromMillis(time.Duration(types.GetSnowflakeTs(matchid)) * time.Millisecond)
 }
 
-func getBucketNumber(d time.Duration) uint32 {
+func getBucketNumberFromMillis(d time.Duration) uint32 {
 	return uint32(d.Hours() / 24 / 10)
 }

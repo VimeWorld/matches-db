@@ -25,6 +25,8 @@ type Server struct {
 func (s *Server) Bind(bind string) error {
 	r := router.New()
 	r.GET("/user/getMatches", s.handleUserMatches)
+	r.GET("/user/getMatchesAfter", s.handleUserMatchesAfter)
+	r.GET("/user/getMatchesBefore", s.handleUserMatchesBefore)
 
 	r.GET(`/match/{id}`, s.handleGetMatch)
 	r.POST(`/match/{id}`, s.handlePostMatch)
@@ -67,6 +69,17 @@ func parseInt(stringSlice []byte, fallback int) int {
 		return fallback
 	}
 	num, err := strconv.Atoi(string(stringSlice))
+	if err != nil {
+		return fallback
+	}
+	return num
+}
+
+func parseUint64(stringSlice []byte, fallback uint64) uint64 {
+	if len(stringSlice) == 0 {
+		return fallback
+	}
+	num, err := strconv.ParseUint(string(stringSlice), 10, 64)
 	if err != nil {
 		return fallback
 	}
