@@ -18,11 +18,12 @@ func main() {
 	usersPath := flag.String("users-db", "./db/users", "path to the users database")
 	matchesPath := flag.String("matches-db", "./db/matches", "path to the matches database")
 	truncate := flag.Bool("truncate", false, "enables badger to truncate corrupted values")
+	ignoreConflicts := flag.Bool("ignore-conflicts", false, "disables conflict detections (can be used during cleanup)")
 
 	iniflags.Parse()
 
 	users := &storage.UserStorage{}
-	if err := users.Open(*usersPath, *truncate); err != nil {
+	if err := users.Open(*usersPath, *truncate, *ignoreConflicts); err != nil {
 		log.Printf("Could not open users database: %s", err)
 		return
 	}

@@ -31,16 +31,12 @@ type MatchesStorage struct {
 func (s *MatchesStorage) Open(path string, truncate bool) error {
 	opts := badger.DefaultOptions(path).
 		WithTruncate(truncate).
-		WithNumMemtables(1).
-		WithNumLevelZeroTables(1).
-		WithNumLevelZeroTablesStall(2).
-		WithKeepL0InMemory(false).
-		WithNumCompactors(1).
+		WithNumMemtables(2).
+		WithNumLevelZeroTables(2).
+		WithNumLevelZeroTablesStall(4).
 		WithLevelOneSize(32 << 20).
-		WithValueLogLoadingMode(badgerOptions.FileIO).
 		WithValueLogMaxEntries(4000000).
-		WithMaxBfCacheSize(5 << 20).
-		WithMaxCacheSize(2 << 20).
+		WithIndexCacheSize(200 << 20).
 		WithCompression(badgerOptions.ZSTD).
 		WithZSTDCompressionLevel(1).
 		WithLogger(&logWrapper{log.New(os.Stderr, "badger-matches ", log.LstdFlags)})
@@ -96,7 +92,7 @@ func (s *MatchesStorage) removeOldMatchesRecursive(deadline uint64, deleted, ret
 
 	// Если размер транзакции слишком большой, то оно закоммитит что есть и будет еще один проход
 	if overrun && err == nil {
-		log.Println("[Matches] Cleanup running out of txn size. Repeating")
+		log.Println("[Matches] Cleanup running out of txn size. Repeating", deleted)
 		return s.removeOldMatchesRecursive(deadline, deleted, 0)
 	}
 	return deleted, err

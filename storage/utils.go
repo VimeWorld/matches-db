@@ -159,7 +159,7 @@ func (l *logWrapper) Infof(f string, v ...interface{}) {
 }
 
 func (l *logWrapper) Debugf(f string, v ...interface{}) {
-	l.Printf("DEBUG: "+f, v...)
+	//l.Printf("DEBUG: "+f, v...)
 }
 
 func runBadgerGc(db *badger.DB, discardRatio float64) {

@@ -36,7 +36,8 @@ func (s *Server) Bind(bind string) error {
 	r.GET("/manage/flatten", s.handleFlatten)
 
 	s.server = &fasthttp.Server{
-		Handler:           s.loggingHandler(r.Handler),
+		//Handler:           s.loggingHandler(r.Handler),
+		Handler:           r.Handler,
 		Name:              "matches-db",
 		ReadTimeout:       60 * time.Second,
 		ReduceMemoryUsage: true,
