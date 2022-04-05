@@ -1,10 +1,11 @@
 package api
 
 import (
+	"encoding/json"
 	"strconv"
 
 	"github.com/VimeWorld/matches-db/storage"
-	"github.com/json-iterator/go"
+	"github.com/VimeWorld/matches-db/types"
 	"github.com/valyala/fasthttp"
 )
 
@@ -36,6 +37,12 @@ func (s *Server) handlePostMatch(c *fasthttp.RequestCtx) {
 	}
 	id := uint64(intId)
 
+	var match types.Match
+	if err = json.Unmarshal(c.PostBody(), &match); err != nil {
+		c.Error(err.Error(), 400)
+		return
+	}
+
 	err = s.Matches.Transaction(func(txn *storage.MatchesTransaction) error {
 		return txn.Put(id, c.PostBody(), true)
 	})
@@ -45,41 +52,21 @@ func (s *Server) handlePostMatch(c *fasthttp.RequestCtx) {
 	}
 
 	var winners []uint32
-	winnerAny := json.Get(c.PostBody(), "winner")
-	if val := winnerAny.Get("team"); val.ValueType() == jsoniter.StringValue {
-		team := val.ToString()
-		val = json.Get(c.PostBody(), "teams")
-		if val.ValueType() == jsoniter.ArrayValue {
-			for i := 0; ; i++ {
-				elem := val.Get(i)
-				if elem.ValueType() == jsoniter.ObjectValue {
-					if elem.Get("id").ToString() == team {
-						members := elem.Get("members")
-						winners = make([]uint32, members.Size())
-						for k := 0; k < len(winners); k++ {
-							winners[k] = members.Get(k).ToUint32()
-						}
-					}
-				} else {
-					break
-				}
+	if match.Winner.Player != 0 {
+		winners = []uint32{match.Winner.Player}
+	} else if len(match.Winner.Players) > 0 {
+		winners = match.Winner.Players
+	} else if match.Winner.Team != "" {
+		for _, team := range match.Teams {
+			if team.Id == match.Winner.Team {
+				winners = team.Members
 			}
-		}
-	} else if val := winnerAny.Get("player"); val.ValueType() == jsoniter.NumberValue {
-		winners = []uint32{val.ToUint32()}
-	} else if val := winnerAny.Get("players"); val.ValueType() == jsoniter.ArrayValue {
-		winners = make([]uint32, val.Size())
-		for k := 0; k < len(winners); k++ {
-			winners[k] = val.Get(k).ToUint32()
 		}
 	}
 
-	var users []uint32
-	if val := json.Get(c.PostBody(), "players", '*', "id"); val.ValueType() == jsoniter.ArrayValue {
-		users = make([]uint32, val.Size())
-		for k := 0; k < len(users); k++ {
-			users[k] = val.Get(k).ToUint32()
-		}
+	users := make([]uint32, len(match.Players))
+	for i, player := range match.Players {
+		users[i] = player.Id
 	}
 
 	err = s.Users.Transaction(func(txn *storage.UsersTransaction) error {

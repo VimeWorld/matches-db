@@ -5,7 +5,6 @@ go 1.18
 require (
 	github.com/dgraph-io/badger/v2 v2.2007.4
 	github.com/fasthttp/router v1.4.7
-	github.com/json-iterator/go v1.1.12
 	github.com/klauspost/compress v1.15.1
 	github.com/valyala/fasthttp v1.34.0
 	github.com/vharitonsky/iniflags v0.0.0-20180513140207-a33cd0b5f3de
@@ -19,8 +18,6 @@ require (
 	github.com/dustin/go-humanize v1.0.0 // indirect
 	github.com/golang/protobuf v1.3.1 // indirect
 	github.com/golang/snappy v0.0.3 // indirect
-	github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421 // indirect
-	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/pkg/errors v0.8.1 // indirect
 	github.com/savsgio/gotils v0.0.0-20220323135742-7576ce6963fd // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect

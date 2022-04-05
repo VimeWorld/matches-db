@@ -1,6 +1,8 @@
 package api
 
 import (
+	"encoding/json"
+
 	"github.com/VimeWorld/matches-db/types"
 	"github.com/valyala/fasthttp"
 )
@@ -85,20 +87,12 @@ func jsonMatches(c *fasthttp.RequestCtx, matches []*types.UserMatch, reverse boo
 		_, _ = c.WriteString("[]")
 		return
 	}
-
-	stream := json.BorrowStream(c)
 	if reverse {
-		stream.WriteArrayStart()
-		for i := len(matches) - 1; i >= 0; i-- {
-			stream.WriteVal(matches[i])
-			if i != 0 {
-				stream.WriteMore()
-			}
+		for i, j := 0, len(matches)-1; i < j; i, j = i+1, j-1 {
+			matches[i], matches[j] = matches[j], matches[i]
 		}
-		stream.WriteArrayEnd()
-	} else {
-		stream.WriteVal(matches)
 	}
-	_ = stream.Flush()
-	json.ReturnStream(stream)
+
+	bytes, _ := json.Marshal(matches)
+	_, _ = c.Write(bytes)
 }

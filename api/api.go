@@ -9,11 +9,8 @@ import (
 
 	"github.com/VimeWorld/matches-db/storage"
 	"github.com/fasthttp/router"
-	"github.com/json-iterator/go"
 	"github.com/valyala/fasthttp"
 )
-
-var json = jsoniter.ConfigFastest
 
 type Server struct {
 	server *fasthttp.Server

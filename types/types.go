@@ -23,3 +23,25 @@ func (s *UserMatch) String() string {
 func GetSnowflakeTs(id uint64) uint64 {
 	return (id >> 22) + SnowflakeEpoch
 }
+
+type Match struct {
+	Version int           `json:"version"`
+	Winner  MatchWinner   `json:"winner"`
+	Teams   []MatchTeam   `json:"teams"`
+	Players []MatchPlayer `json:"players"`
+}
+
+type MatchWinner struct {
+	Player  uint32   `json:"player"`
+	Players []uint32 `json:"players"`
+	Team    string   `json:"team"`
+}
+
+type MatchTeam struct {
+	Id      string   `json:"id"`
+	Members []uint32 `json:"members"`
+}
+
+type MatchPlayer struct {
+	Id uint32 `json:"id"`
+}
