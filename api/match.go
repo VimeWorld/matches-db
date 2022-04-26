@@ -26,6 +26,7 @@ func (s *Server) handleGetMatch(c *fasthttp.RequestCtx) {
 		return
 	}
 
+	c.Response.Header.Set(fasthttp.HeaderContentType, "application/json")
 	c.SetBody(data)
 }
 
@@ -37,14 +38,25 @@ func (s *Server) handlePostMatch(c *fasthttp.RequestCtx) {
 	}
 	id := uint64(intId)
 
+	var body []byte
+	if string(c.Request.Header.Peek(fasthttp.HeaderContentEncoding)) == "gzip" {
+		body, err = c.Request.BodyGunzip()
+		if err != nil {
+			c.Error(err.Error(), 400)
+			return
+		}
+	} else {
+		body = c.PostBody()
+	}
+
 	var match types.Match
-	if err = json.Unmarshal(c.PostBody(), &match); err != nil {
+	if err = json.Unmarshal(body, &match); err != nil {
 		c.Error(err.Error(), 400)
 		return
 	}
 
 	err = s.Matches.Transaction(func(txn *storage.MatchesTransaction) error {
-		return txn.Put(id, c.PostBody(), true)
+		return txn.Put(id, body, true)
 	})
 	if err != nil {
 		c.Error(err.Error(), 500)

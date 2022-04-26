@@ -25,7 +25,7 @@ func (s *Server) Bind(bind string) error {
 	r.GET("/user/getMatchesAfter", s.handleUserMatchesAfter)
 	r.GET("/user/getMatchesBefore", s.handleUserMatchesBefore)
 
-	r.GET(`/match/{id}`, s.handleGetMatch)
+	r.GET(`/match/{id}`, fasthttp.CompressHandler(s.handleGetMatch))
 	r.POST(`/match/{id}`, s.handlePostMatch)
 
 	r.GET("/manage/backup", s.handleBackup)
