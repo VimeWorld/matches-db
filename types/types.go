@@ -35,6 +35,7 @@ type MatchWinner struct {
 	Player  uint32   `json:"player"`
 	Players []uint32 `json:"players"`
 	Team    string   `json:"team"`
+	Teams   []string `json:"teams"`
 }
 
 type MatchTeam struct {
