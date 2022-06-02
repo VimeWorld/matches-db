@@ -79,7 +79,7 @@ func (s *Server) handlePostMatch(c *fasthttp.RequestCtx) {
 		for _, team := range match.Teams {
 			for _, wTeamId := range match.Winner.Teams {
 				if team.Id == wTeamId {
-					winners = append(team.Members)
+					winners = append(winners, team.Members...)
 				}
 			}
 		}
