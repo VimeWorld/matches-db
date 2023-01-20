@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/VimeWorld/matches-db/api"
 	"github.com/VimeWorld/matches-db/storage"
@@ -19,10 +20,13 @@ func main() {
 	matchesPath := flag.String("matches-db", "./db/matches", "path to the matches database")
 	truncate := flag.Bool("truncate", false, "enables badger to truncate corrupted values")
 	ignoreConflicts := flag.Bool("ignore-conflicts", false, "disables conflict detections (can be used during cleanup)")
+	ttl := flag.Duration("ttl", 6*30*24*time.Hour, "matches ttl")
 
 	iniflags.Parse()
 
-	users := &storage.UserStorage{}
+	users := &storage.UserStorage{
+		TTL: *ttl,
+	}
 	if err := users.Open(*usersPath, *truncate, *ignoreConflicts); err != nil {
 		log.Printf("Could not open users database: %s", err)
 		return
@@ -30,7 +34,8 @@ func main() {
 	defer func() { _ = users.Close() }()
 
 	matches := &storage.MatchesStorage{
-		CompressThreshold: 256,
+		CompressThreshold: 512,
+		TTL:               *ttl + 10*24*time.Hour,
 	}
 	if err := matches.Open(*matchesPath, *truncate); err != nil {
 		log.Printf("Could not open matches database: %s", err)

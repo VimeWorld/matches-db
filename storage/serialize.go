@@ -168,6 +168,13 @@ func serializeUint32(num uint32) []byte {
 	return b
 }
 
+func deserializeUint32(ser []byte) uint32 {
+	if len(ser) != 4 {
+		return 0
+	}
+	return byteOrder.Uint32(ser)
+}
+
 func serializeUint64(num uint64) []byte {
 	b := make([]byte, 8)
 	byteOrder.PutUint64(b, num)

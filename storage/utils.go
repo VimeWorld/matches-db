@@ -13,6 +13,7 @@ import (
 type valueDescriptor struct {
 	version  byte
 	size     int
+	ttl      time.Duration
 	migrator func(old []byte, version byte) ([]byte, error)
 }
 
@@ -26,7 +27,11 @@ func appendValue(txn *badger.Txn, key, appendix []byte, config *valueDescriptor)
 	stored, version, err := getWithValue(txn, key)
 
 	if err == badger.ErrKeyNotFound {
-		return txn.SetEntry(badger.NewEntry(key, appendix).WithMeta(config.version))
+		return txn.SetEntry(
+			badger.NewEntry(key, appendix).
+				WithMeta(config.version).
+				WithTTL(config.ttl),
+		)
 	} else if err != nil {
 		return err
 	}
@@ -42,18 +47,26 @@ func appendValue(txn *badger.Txn, key, appendix []byte, config *valueDescriptor)
 	newValue := make([]byte, len(stored)+len(appendix))
 	copy(newValue, stored)
 	copy(newValue[len(stored):], appendix)
-	return txn.SetEntry(badger.NewEntry(key, newValue).WithMeta(config.version))
+	return txn.SetEntry(
+		badger.NewEntry(key, newValue).
+			WithMeta(config.version).
+			WithTTL(config.ttl),
+	)
 }
 
 // Метод аналогичен appendValue, за исключением того что сохраненные данные воспринимаются
 // в качестве Set и в них не могут содержаться одинаковые значения.
 //
 // На одинаковость значения проверяются через сравнение кусков байт фиксированной длины из дескриптора.
-func appendValueIfNotExists(txn *badger.Txn, key, appendix []byte, config *valueDescriptor) error {
+func appendValueIfNotExistsAndFilter(txn *badger.Txn, key, appendix []byte, filter func([]byte) []byte, config *valueDescriptor) error {
 	stored, version, err := getWithValue(txn, key)
 
 	if err == badger.ErrKeyNotFound {
-		return txn.SetEntry(badger.NewEntry(key, appendix).WithMeta(config.version))
+		return txn.SetEntry(
+			badger.NewEntry(key, appendix).
+				WithMeta(config.version).
+				WithTTL(config.ttl),
+		)
 	} else if err != nil {
 		return err
 	}
@@ -83,10 +96,21 @@ func appendValueIfNotExists(txn *badger.Txn, key, appendix []byte, config *value
 		copy(newValue, stored)
 		copy(newValue[len(stored):], appendix)
 		stored = newValue
+
+		if filter != nil {
+			stored = filter(stored)
+			if len(stored) == 0 {
+				return txn.Delete(key)
+			}
+		}
 	}
 
 	if updated {
-		return txn.SetEntry(badger.NewEntry(key, stored).WithMeta(config.version))
+		return txn.SetEntry(
+			badger.NewEntry(key, stored).
+				WithMeta(config.version).
+				WithTTL(config.ttl),
+		)
 	}
 	return nil
 }
@@ -125,7 +149,11 @@ func removeValue(txn *badger.Txn, key, value []byte, multiple bool, config *valu
 		return txn.Delete(key)
 	}
 	if updated {
-		return txn.SetEntry(badger.NewEntry(key, stored).WithMeta(config.version))
+		return txn.SetEntry(
+			badger.NewEntry(key, stored).
+				WithMeta(config.version).
+				WithTTL(config.ttl),
+		)
 	}
 	return nil
 }

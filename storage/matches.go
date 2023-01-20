@@ -16,11 +16,12 @@ import (
 )
 
 const (
-	matchesMetaTypeRaw   = 0
-	matchesMetaTypeFlate = 1
+	matchesMetaTypeRaw   = byte(0)
+	matchesMetaTypeFlate = byte(1)
 )
 
 type MatchesStorage struct {
+	TTL               time.Duration
 	CompressThreshold int
 	WriteLocked       bool
 
@@ -141,8 +142,8 @@ func (s *MatchesStorage) BigTransaction(fn func(txn *badger.Txn) error, update b
 func (s *MatchesStorage) Transaction(fn func(txn *MatchesTransaction) error) error {
 	return s.db.Update(func(txn *badger.Txn) error {
 		return fn(&MatchesTransaction{
-			txn:               txn,
-			compressThreshold: s.CompressThreshold,
+			txn: txn,
+			s:   s,
 		})
 	})
 }
@@ -160,22 +161,27 @@ func (s *MatchesStorage) Close() error {
 }
 
 type MatchesTransaction struct {
-	txn               *badger.Txn
-	compressThreshold int
+	txn *badger.Txn
+	s   *MatchesStorage
 }
 
 func (t *MatchesTransaction) Put(id uint64, data []byte, copy bool) error {
-	if len(data) > t.compressThreshold {
-		data, err := deflate(data)
-		if err != nil {
+	meta := matchesMetaTypeRaw
+	if len(data) > t.s.CompressThreshold {
+		var err error
+		if data, err = deflate(data); err != nil {
 			return err
 		}
-		return t.txn.SetEntry(badger.NewEntry(serializeUint64(id), data).WithMeta(matchesMetaTypeFlate))
+		meta = matchesMetaTypeFlate
+	} else if copy {
+		var c []byte
+		data = append(c, data...)
 	}
-	if copy {
-		data = append(data[:0:0], data...)
-	}
-	return t.txn.SetEntry(badger.NewEntry(serializeUint64(id), data).WithMeta(matchesMetaTypeRaw))
+	return t.txn.SetEntry(
+		badger.NewEntry(serializeUint64(id), data).
+			WithTTL(t.s.TTL).
+			WithMeta(meta),
+	)
 }
 
 var deflaters = sync.Pool{New: func() interface{} {
