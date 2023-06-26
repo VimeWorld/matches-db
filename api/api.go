@@ -29,7 +29,6 @@ func (s *Server) Bind(bind string) error {
 	r.POST(`/match/{id}`, s.handlePostMatch)
 
 	r.GET("/manage/backup", s.handleBackup)
-	r.GET("/manage/cleanup", s.handleCleanup)
 	r.GET("/manage/flatten", s.handleFlatten)
 
 	s.server = &fasthttp.Server{

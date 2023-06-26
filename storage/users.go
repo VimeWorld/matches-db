@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"errors"
 	"log"
 	"os"
 	"sort"
@@ -92,120 +91,6 @@ func (s *UserStorage) GetUserMatchesBefore(id uint32, begin uint64, count int) (
 	return matches, err
 }
 
-func (s *UserStorage) RemoveOldMatches(deadline time.Time) (deleted int, err error) {
-	return s.removeOldMatchesRecursive(deadline, deleted, 0)
-}
-
-func (s *UserStorage) removeOldMatchesRecursive(deadline time.Time, deleted, retry int) (int, error) {
-	deadlineMillis := uint64(deadline.Unix() * 1000)
-	maxBucketNumber := getBucketNumberFromMillis(time.Duration(deadlineMillis) * time.Millisecond)
-	deletedNow := 0
-	overrun, err := s.BigTransaction(func(txn *UsersTransaction) error {
-		btxn := txn.txn
-		it := btxn.NewIterator(badger.IteratorOptions{
-			PrefetchValues: false,
-		})
-		defer it.Close()
-
-		match := &types.UserMatch{}
-		buffer := newByteBuf(nil, false)
-
-		for it.Rewind(); it.Valid(); it.Next() {
-			item := it.Item()
-
-			if item.KeySize() != keyLength+bucketLength {
-				continue
-			}
-			bucket := item.Key()[keyLength:]
-			bucketNumber := byteOrder.Uint32(bucket)
-
-			// Сначала чистится список ведер, а только затем удаляется само ведро.
-			// В противном случае ведро может удалиться, а в списке ведер оно останется навсегда, утечка.
-
-			// Номер ведра меньше актуального, можно удалить его и все что в нем лежит.
-			if bucketNumber < maxBucketNumber {
-				key := item.KeyCopy(nil)
-				err := removeValue(btxn, key[:keyLength], bucket, false, s.bucketsDescriptor)
-				if err != nil {
-					return err
-				}
-				err = btxn.Delete(key)
-				if err != nil {
-					return err
-				}
-				deletedNow++
-				continue
-			}
-
-			// Номер ведра равен последнему, а значит в нем лежат матчи, которые нужно отфильтровать
-			if bucketNumber == maxBucketNumber {
-				changed := false
-				ver := item.UserMeta()
-				err := item.Value(func(val []byte) error {
-					buffer.Reset(val, false)
-					// Удаление матчей из ведра
-					for buffer.Remaining() > 0 {
-						err := readMatch(ver, buffer, match)
-						if err != nil {
-							return err
-						}
-						if types.GetSnowflakeTs(match.Id) >= deadlineMillis {
-							break
-						} else {
-							changed = true
-						}
-					}
-					// Если ведро осталось пустым
-					if buffer.Remaining() == 0 {
-						key := item.KeyCopy(nil)
-						err := removeValue(btxn, key[:keyLength], bucket, false, s.bucketsDescriptor)
-						if err != nil {
-							return err
-						}
-						return btxn.Delete(key)
-					}
-					if buffer.readerIndex > 0 {
-						copiedVal := append(val[:0:0], val[buffer.readerIndex:]...)
-						entry := badger.NewEntry(item.KeyCopy(nil), copiedVal).
-							WithMeta(ver).
-							WithTTL(s.TTL)
-						return btxn.SetEntry(entry)
-					}
-					return nil
-				})
-				if err != nil {
-					return err
-				}
-				if changed {
-					deletedNow++
-				}
-			}
-			if deletedNow > 5000 {
-				// Форсим коммит, чтобы была меньше вероятность конфликтов
-				return badger.ErrTxnTooBig
-			}
-		}
-		return nil
-	}, true)
-
-	if err == badger.ErrConflict {
-		if retry >= 10 {
-			return deleted, errors.New("too many conflicts")
-		}
-		log.Println("[Users] Conflict. Retry", retry)
-		return s.removeOldMatchesRecursive(deadline, deleted, retry+1)
-	}
-
-	deleted += deletedNow
-
-	// Если размер транзакции слишком большой, то оно закоммитит что есть и будет еще один проход
-	if overrun && err == nil {
-		log.Println("[Users] Cleanup running out of txn size. Repeating", deleted)
-		return s.removeOldMatchesRecursive(deadline, deleted, 0)
-	}
-	return deleted, err
-}
-
 func (s *UserStorage) Transaction(fn func(txn *UsersTransaction) error, update bool) error {
 	cb := func(txn *badger.Txn) error {
 		userTxn := &UsersTransaction{
@@ -224,24 +109,6 @@ func (s *UserStorage) Transaction(fn func(txn *UsersTransaction) error, update b
 	}
 }
 
-func (s *UserStorage) BigTransaction(fn func(txn *UsersTransaction) error, update bool) (overrun bool, err error) {
-	txn := s.db.NewTransaction(update)
-	defer txn.Discard()
-
-	userTxn := &UsersTransaction{
-		s:   s,
-		txn: txn,
-	}
-	if err := fn(userTxn); err != nil {
-		if err == badger.ErrTxnTooBig {
-			return true, txn.Commit()
-		}
-		return false, err
-	}
-
-	return false, txn.Commit()
-}
-
 func (s *UserStorage) Flatten() error {
 	return s.db.Flatten(3)
 }
@@ -252,6 +119,11 @@ func (s *UserStorage) Backup() error {
 
 func (s *UserStorage) Close() error {
 	return s.db.Close()
+}
+
+func (s *UserStorage) oldestBucketNum() uint32 {
+	millis := time.Duration(time.Now().Add(-s.TTL).UnixMilli()) * time.Millisecond
+	return getBucketNumberFromMillis(millis)
 }
 
 type UsersTransaction struct {
@@ -274,8 +146,7 @@ func (t *UsersTransaction) AddMatch(userid uint32, matchid uint64, state byte) e
 }
 
 func (t *UsersTransaction) filterOldBuckets(buckets []byte) []byte {
-	millis := time.Duration(time.Now().Add(-t.s.TTL).UnixMilli()) * time.Millisecond
-	minBucketNumber := getBucketNumberFromMillis(millis)
+	minBucketNumber := t.s.oldestBucketNum()
 	size := t.s.bucketsDescriptor.size
 	for i := 0; i < len(buckets)/size; i++ {
 		num := deserializeUint32(buckets[i*size : (i+1)*size])
@@ -293,12 +164,18 @@ func (t *UsersTransaction) GetLastUserMatches(userid uint32, offset, count int) 
 	if err != nil {
 		return nil, err
 	}
+	oldestBucketNum := t.s.oldestBucketNum()
 	offsetBytes := offset * matchSize
 	remainingBytes := count * matchSize
 	k := make([]byte, keyLength+bucketLength)
 	copy(k, key)
 	// search in reverse order
 	for i := len(buckets) - 1; i >= 0; i-- {
+		currentBucket := byteOrder.Uint32(buckets[i])
+		if currentBucket < oldestBucketNum {
+			break
+		}
+
 		copy(k[keyLength:], buckets[i])
 		value, version, err := getWithValue(t.txn, k)
 		if err != nil {
@@ -347,6 +224,10 @@ func (t *UsersTransaction) GetUserMatchesAfter(userid uint32, begin uint64, coun
 	k := make([]byte, keyLength+bucketLength)
 	copy(k, key)
 	fromBucket := getBucketNumberFromId(begin)
+	oldestBucketNum := t.s.oldestBucketNum()
+	if fromBucket < oldestBucketNum {
+		fromBucket = oldestBucketNum
+	}
 	for i := 0; i < len(buckets); i++ {
 		currentBucket := byteOrder.Uint32(buckets[i])
 		if currentBucket < fromBucket {
@@ -398,12 +279,16 @@ func (t *UsersTransaction) GetUserMatchesBefore(userid uint32, begin uint64, cou
 	k := make([]byte, keyLength+bucketLength)
 	copy(k, key)
 	fromBucket := getBucketNumberFromId(begin)
+	oldestBucketNum := t.s.oldestBucketNum()
 
 	// search in reverse order
 	for i := len(buckets) - 1; i >= 0; i-- {
 		currentBucket := byteOrder.Uint32(buckets[i])
 		if currentBucket > fromBucket {
 			continue
+		}
+		if currentBucket < oldestBucketNum {
+			break
 		}
 
 		copy(k[keyLength:], buckets[i])
