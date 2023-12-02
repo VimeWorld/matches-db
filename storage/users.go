@@ -1,14 +1,11 @@
 package storage
 
 import (
-	"log"
-	"os"
 	"sort"
 	"time"
 
 	"github.com/VimeWorld/matches-db/types"
-	"github.com/dgraph-io/badger/v2"
-	badgerOptions "github.com/dgraph-io/badger/v2/options"
+	"github.com/dgraph-io/badger/v4"
 )
 
 const (
@@ -17,27 +14,14 @@ const (
 )
 
 type UserStorage struct {
-	db   *badger.DB
-	path string
-	TTL  time.Duration
+	DB  *badger.DB
+	TTL time.Duration
 
 	userMatchesDescriptor *valueDescriptor
 	bucketsDescriptor     *valueDescriptor
 }
 
-func (s *UserStorage) Open(path string, truncate, ignoreConflicts bool) error {
-	opts := badger.DefaultOptions(path).
-		WithTruncate(truncate).
-		WithDetectConflicts(!ignoreConflicts).
-		WithNumMemtables(2).
-		WithNumLevelZeroTables(2).
-		WithNumLevelZeroTablesStall(4).
-		WithValueLogFileSize(128 << 20).
-		WithIndexCacheSize(200 << 20).
-		WithCompression(badgerOptions.ZSTD).
-		WithZSTDCompressionLevel(1).
-		WithLogger(&logWrapper{log.New(os.Stderr, "badger-users ", log.LstdFlags)})
-
+func (s *UserStorage) Init() {
 	s.userMatchesDescriptor = &valueDescriptor{
 		version:  1,
 		size:     matchSize,
@@ -49,16 +33,6 @@ func (s *UserStorage) Open(path string, truncate, ignoreConflicts bool) error {
 		size:    bucketLength,
 		ttl:     s.TTL + 10*24*time.Hour,
 	}
-
-	db, err := badger.Open(opts)
-	if err != nil {
-		return err
-	}
-	s.db = db
-	s.path = path
-	runBadgerGc(db, 0.5)
-
-	return nil
 }
 
 func (s *UserStorage) GetLastUserMatches(id uint32, offset, count int) ([]*types.UserMatch, error) {
@@ -103,22 +77,10 @@ func (s *UserStorage) Transaction(fn func(txn *UsersTransaction) error, update b
 		return nil
 	}
 	if update {
-		return s.db.Update(cb)
+		return s.DB.Update(cb)
 	} else {
-		return s.db.View(cb)
+		return s.DB.View(cb)
 	}
-}
-
-func (s *UserStorage) Flatten() error {
-	return s.db.Flatten(3)
-}
-
-func (s *UserStorage) Backup() error {
-	return backup(s.db, s.path+"/backups")
-}
-
-func (s *UserStorage) Close() error {
-	return s.db.Close()
 }
 
 func (s *UserStorage) oldestBucketNum() uint32 {

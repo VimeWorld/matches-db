@@ -3,13 +3,10 @@ package storage
 import (
 	"bytes"
 	"io"
-	"log"
-	"os"
 	"sync"
 	"time"
 
-	"github.com/dgraph-io/badger/v2"
-	badgerOptions "github.com/dgraph-io/badger/v2/options"
+	"github.com/dgraph-io/badger/v4"
 	"github.com/klauspost/compress/flate"
 )
 
@@ -19,41 +16,15 @@ const (
 )
 
 type MatchesStorage struct {
-	TTL               time.Duration
-	CompressThreshold int
-	WriteLocked       bool
+	TTL         time.Duration
+	WriteLocked bool
 
-	db   *badger.DB
-	path string
-}
-
-func (s *MatchesStorage) Open(path string, truncate bool) error {
-	opts := badger.DefaultOptions(path).
-		WithTruncate(truncate).
-		WithNumMemtables(2).
-		WithNumLevelZeroTables(2).
-		WithNumLevelZeroTablesStall(4).
-		WithLevelOneSize(32 << 20).
-		WithValueLogMaxEntries(4000000).
-		WithIndexCacheSize(200 << 20).
-		WithCompression(badgerOptions.ZSTD).
-		WithZSTDCompressionLevel(1).
-		WithLogger(&logWrapper{log.New(os.Stderr, "badger-matches ", log.LstdFlags)})
-
-	db, err := badger.Open(opts)
-	if err != nil {
-		return err
-	}
-	s.db = db
-	s.path = path
-	runBadgerGc(db, 0.5)
-
-	return nil
+	DB *badger.DB
 }
 
 func (s *MatchesStorage) Get(id uint64) ([]byte, error) {
 	var data []byte
-	err := s.db.View(func(txn *badger.Txn) error {
+	err := s.DB.View(func(txn *badger.Txn) error {
 		item, err := txn.Get(serializeUint64(id))
 		if err == badger.ErrKeyNotFound {
 			return nil
@@ -78,24 +49,12 @@ func (s *MatchesStorage) Get(id uint64) ([]byte, error) {
 }
 
 func (s *MatchesStorage) Transaction(fn func(txn *MatchesTransaction) error) error {
-	return s.db.Update(func(txn *badger.Txn) error {
+	return s.DB.Update(func(txn *badger.Txn) error {
 		return fn(&MatchesTransaction{
 			txn: txn,
 			s:   s,
 		})
 	})
-}
-
-func (s *MatchesStorage) Flatten() error {
-	return s.db.Flatten(3)
-}
-
-func (s *MatchesStorage) Backup() error {
-	return backup(s.db, s.path+"/backups")
-}
-
-func (s *MatchesStorage) Close() error {
-	return s.db.Close()
 }
 
 type MatchesTransaction struct {
@@ -105,7 +64,8 @@ type MatchesTransaction struct {
 
 func (t *MatchesTransaction) Put(id uint64, data []byte, copy bool) error {
 	meta := matchesMetaTypeRaw
-	if len(data) > t.s.CompressThreshold {
+	// Все что хранится в LSM сжимается автоматически
+	if len(data) > int(t.s.DB.Opts().ValueThreshold) {
 		var err error
 		if data, err = deflate(data); err != nil {
 			return err

@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -16,32 +15,28 @@ import (
 
 func main() {
 	bind := flag.String("bind", "127.0.0.1:8881", "address to bind baas (can be a unix domain socket: /var/run/matches-db.sock)")
-	usersPath := flag.String("users-db", "./db/users", "path to the users database")
-	matchesPath := flag.String("matches-db", "./db/matches", "path to the matches database")
-	truncate := flag.Bool("truncate", false, "enables badger to truncate corrupted values")
-	ignoreConflicts := flag.Bool("ignore-conflicts", false, "disables conflict detections (can be used during cleanup)")
+	dir := flag.String("dir", "./db", "path to the database")
 	ttl := flag.Duration("ttl", 6*30*24*time.Hour, "matches ttl")
 
 	iniflags.Parse()
 
-	users := &storage.UserStorage{
-		TTL: *ttl,
-	}
-	if err := users.Open(*usersPath, *truncate, *ignoreConflicts); err != nil {
+	db, err := storage.OpenDatabase(*dir)
+	if err != nil {
 		log.Printf("Could not open users database: %s", err)
 		return
 	}
-	defer func() { _ = users.Close() }()
+	defer func() { _ = db.Close() }()
+
+	users := &storage.UserStorage{
+		DB:  db,
+		TTL: *ttl,
+	}
+	users.Init()
 
 	matches := &storage.MatchesStorage{
-		CompressThreshold: 512,
-		TTL:               *ttl + 10*24*time.Hour,
+		DB:  db,
+		TTL: *ttl + 10*24*time.Hour,
 	}
-	if err := matches.Open(*matchesPath, *truncate); err != nil {
-		log.Printf("Could not open matches database: %s", err)
-		return
-	}
-	defer func() { _ = matches.Close() }()
 
 	server := api.Server{
 		Users:   users,
@@ -64,20 +59,8 @@ func main() {
 			log.Printf("Stop server error: %s", err)
 		}
 		log.Printf("Close databases")
-		var wg sync.WaitGroup
-		wg.Add(2)
-		go func() {
-			if err := users.Close(); err != nil {
-				log.Printf("Could not close users database: %s", err)
-			}
-			wg.Done()
-		}()
-		go func() {
-			if err := matches.Close(); err != nil {
-				log.Printf("Could not close matches database: %s", err)
-			}
-			wg.Done()
-		}()
-		wg.Wait()
+		if err := db.Close(); err != nil {
+			log.Printf("Could not close database: %s", err)
+		}
 	}
 }
